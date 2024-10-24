@@ -2,13 +2,13 @@ const express = require('express');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const router = express.Router();
-const { login } = require('./controllers/margaritaControllers');
+const { login, register, reclamarCodigo } = require('./controllers/margaritaControllers'); // Importa tanto login como register
 
 // Cargar las variables de entorno correctamente
 dotenv.config({ path: './config.env' });
 
 // Conectar a MongoDB
-mongoose.connect(process.env.DB_CONNECTION)
+mongoose.connect(process.env.MONGO_URI)
    .then(() => {
        console.log('Conexión exitosa a MongoDB');
    })
@@ -18,5 +18,7 @@ mongoose.connect(process.env.DB_CONNECTION)
 
 // Ruta para el login
 router.post('/login', login);
+router.post('/register', register); // Asegúrate de que register esté definido y importado
+router.post('/reclamar',reclamarCodigo); 
 
 module.exports = router;

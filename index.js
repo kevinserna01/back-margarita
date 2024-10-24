@@ -1,7 +1,10 @@
 const express = require('express');
 const { urlencoded, json } = require('express');
+const pool = require('./database/mongo');
 const router = require('./routes/margarita.routes.js');
 const cors = require('cors');
+require('dotenv').config();
+
 
 const app = express();
 
