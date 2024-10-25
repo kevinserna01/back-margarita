@@ -2,7 +2,7 @@ const fs = require('fs/promises'); // Importa el módulo de archivos (opcional, 
 const path = require('path'); // Importa el módulo de rutas (opcional, dependiendo de tu lógica)
 const CryptoJS = require('crypto-js');
 const pool = require('../../database/mongo'); // Asegúrate de que la conexión a la base de datos está bien
-const moment = require('moment-timezone');
+const moment = require('moment-timezone'); // Importa moment-timezone una sola vez
 
 // Lógica de login
 const login = async (req, res) => {
@@ -30,8 +30,6 @@ const login = async (req, res) => {
       res.status(500).json({ status: "Error", message: "Internal Server Error" });
   }
 };
-
-
 
 const register = async (req, res) => {
   const { nombre, fecha, cedula, correo, celular, ciudad, contraseña } = req.body;
@@ -64,65 +62,72 @@ const register = async (req, res) => {
 };
 
 const reclamarCodigo = async (req, res) => {
-  const { userId, codigo } = req.body; // Asegúrate de que se están recibiendo los datos correctamente
-  console.log("Datos recibidos para reclamar código:", req.body);
-  
-  let client; // Declarar client aquí
+    const { correo, codigoReclamado } = req.body; // Debe contener el correo del usuario y el código a reclamar
+    console.log("Solicitud de reclamación recibida:", req.body); // Para ver qué datos se reciben
 
-  try {
-      client = await pool.connect(); // Conectar a MongoDB
-      const db = client.db('margarita');
-      const codigosCollection = db.collection('codigos');
+    try {
+        // Buscar el código en la base de datos
+        const codigo = await pool.db('margarita').collection('codigos').findOne({ codigo: codigoReclamado });
 
-      // Verificar si el código existe y su estado
-      const codigoReclamado = await codigosCollection.findOne({ codigo });
+        if (!codigo) {
+            return res.json({ status: "Error", message: "Código no encontrado" });
+        }
 
-      if (!codigoReclamado) {
-          return res.json({ status: "Error", message: "Código no válido." });
-      }
+        // Verificar si el código ya fue reclamado
+        if (codigo.estado === "ya reclamado") {
+            return res.json({ status: "Error", message: "El código ya fue reclamado" });
+        }
 
-      if (codigoReclamado.estado !== "por reclamar") {
-          return res.json({ status: "Error", message: "Este código ya fue reclamado." });
-      }
+        // Obtener la fecha y hora actual en Colombia
+        const fechaHora = moment().tz('America/Bogota').format('YYYY-MM-DD HH:mm:ss');
 
-      // Cambiar el estado del código y guardar la información del usuario que reclamó
-      const montoGanado = codigoReclamado.monto; // Obtener el monto desde el código
-      const nuevaFecha = new Date().toISOString();
-      
-      await codigosCollection.updateOne(
-          { codigo },
-          {
-              $set: {
-                  estado: `ya reclamado (${userId})`, // Cambia el estado al ID del usuario
-                  fechaReclamo: nuevaFecha // Guarda la fecha del reclamo
-              }
-          }
-      );
+        // Actualizar el estado del código a "ya reclamado" y guardar el correo del usuario que lo reclamó
+        await pool.db('margarita').collection('codigos').updateOne(
+            { codigo: codigoReclamado },
+            { 
+                $set: { estado: "ya reclamado", correoReclamador: correo, fechaHora }, // Actualizar el estado y correo
+            }
+        );
 
-      // Aquí podrías también guardar el reclamo en otra colección para llevar un registro
-      // Ejemplo: await db.collection('reclamos').insertOne({ userId, codigo, montoGanado, nuevaFecha });
+        // Guardar el log de la reclamación
+        const logReclamacion = {
+            correo,
+            codigo: codigoReclamado,
+            montoGanado: codigo.monto, // Suponiendo que el monto está guardado en el documento del código
+            fechaHora,
+        };
 
-      // Responder con el resultado del reclamo
-      res.json({
-          status: "Éxito",
-          message: `¡Ganaste! Monto: $${montoGanado}`,
-          userId // Este es el ID del usuario que reclama el código
-      });
+        await pool.db('margarita').collection('logsReclamaciones').insertOne(logReclamacion); // Guardar en la colección de logs
 
-  } catch (error) {
-      console.error('Error al reclamar código:', error);
-      res.status(500).json({ status: "Error", message: "Error en el servidor" });
-  } finally {
-      if (client) {
-          client.close(); // Cerrar la conexión con la base de datos si client fue definido
-      }
-  }
+        res.json({ status: "Éxito", message: "Código reclamado correctamente", montoGanado: codigo.monto });
+    } catch (error) {
+        console.error('Error al reclamar el código:', error);
+        res.status(500).json({ status: "Error", message: "Internal Server Error" });
+    }
 };
 
+const obtenerHistorialReclamos = async (req, res) => {
+    const { correo } = req.body; // Obtener el correo del cuerpo de la solicitud
+
+    try {
+        // Consultar la colección 'reclamos' para obtener el historial del usuario
+        const historial = await pool.db('margarita').collection('reclamos').find({ correo }).toArray();
+
+        if (historial.length > 0) {
+            res.json({ status: "Éxito", historial });
+        } else {
+            res.json({ status: "SinHistorial", message: "No hay historial de reclamos para este usuario." });
+        }
+    } catch (error) {
+        console.error('Error al obtener el historial de reclamos:', error);
+        res.status(500).json({ status: "Error", message: "Internal Server Error" });
+    }
+};
 
 // Exporta la función de login
 module.exports = {
     login,
     register,
-    reclamarCodigo
+    reclamarCodigo,
+    obtenerHistorialReclamos
 };
