@@ -235,33 +235,44 @@ const loginAdmin = async (req, res) => {
     }
 };
 
-    const obtenerGanadores = async (req, res) => {
-        try {
-            await connectDb(); // Conectar a la base de datos
-            const db = getDb(); // Obtener la referencia a la base de datos
-            const reclamosCollection = db.collection('reclamos');
-    
-            // Buscar todos los reclamos con estado "reclamado"
-            const ganadores = await reclamosCollection.find({ estado: "reclamado" }).toArray();
-    
-            if (ganadores.length === 0) {
-                return res.status(404).json({ status: "Error", message: "No hay ganadores registrados." });
-            }
-    
-            // Formatear los ganadores para una respuesta más clara
-            const respuestaGanadores = ganadores.map(ganador => ({
-                userId: ganador.userId, // ID del usuario
-                codigo: ganador.codigo,
-                monto: ganador.montoGanado,
-                fecha: ganador.fechaReclamo
-            }));
-    
-            res.status(200).json({ status: "Éxito", ganadores: respuestaGanadores });
-        } catch (error) {
-            console.error('Error al obtener ganadores:', error);
-            res.status(500).json({ status: "Error", message: "Error en el servidor" });
+const obtenerGanadores = async (req, res) => {
+    try {
+        await connectDb(); // Conectar a la base de datos
+        const db = getDb(); // Obtener la referencia a la base de datos
+        const reclamosCollection = db.collection('reclamos');
+        const ganadoresCollection = db.collection('ganadores'); // Asegúrate de que existe esta colección
+
+        // Buscar todos los reclamos con estado "reclamado"
+        const ganadores = await reclamosCollection.find({ estado: "reclamado" }).toArray();
+
+        if (ganadores.length === 0) {
+            return res.status(404).json({ status: "Error", message: "No hay ganadores registrados." });
         }
-    };
+
+        // Formatear los ganadores para una respuesta más clara
+        const respuestaGanadores = ganadores.map(ganador => ({
+            userId: ganador.userId, // ID del usuario
+            codigo: ganador.codigo,
+            monto: ganador.montoGanado,
+            fecha: ganador.fechaReclamo
+        }));
+
+        // Insertar o actualizar en la colección de ganadores
+        for (const ganador of respuestaGanadores) {
+            await ganadoresCollection.updateOne(
+                { userId: ganador.userId, codigo: ganador.codigo }, // Condición para evitar duplicados
+                { $set: ganador },
+                { upsert: true } // Si no existe, lo crea
+            );
+        }
+
+        res.status(200).json({ status: "Éxito", ganadores: respuestaGanadores });
+    } catch (error) {
+        console.error('Error al obtener ganadores:', error);
+        res.status(500).json({ status: "Error", message: "Error en el servidor" });
+    }
+};
+
     
 // Exporta las funciones
 module.exports = {
